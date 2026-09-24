@@ -9,6 +9,7 @@
   },
   "scripts": {
     "set-webhook": "node --env-file=.env scripts/set-webhook.mjs",
-    "try": "node --env-file=.env scripts/try-draft.mjs"
+    "try": "node --env-file=.env scripts/try-draft.mjs",
+    "test-guardrail": "node --env-file=.env scripts/test-guardrail.mjs"
   }
 }

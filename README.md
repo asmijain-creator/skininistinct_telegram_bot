@@ -16,11 +16,12 @@ No npm dependencies — it uses Node's built-in `fetch`.
 | File | What it does |
 | --- | --- |
 | `api/telegram.js` | The webhook Vercel runs for each Telegram message |
-| `lib/gemini.js` | Builds the prompt and calls Gemini |
+| `lib/gemini.js` | Scores each note (guardrail), then builds the draft prompt and calls Gemini |
 | `lib/telegram.js` | Sends replies (splits anything over Telegram's 4096-char limit) |
 | `prompts/voice-skill.txt` | Meera's voice description, sent to Gemini word for word on every draft |
 | `scripts/set-webhook.mjs` | One-time: tells Telegram where your Vercel app is |
 | `scripts/try-draft.mjs` | Test the voice prompt from your terminal, no Telegram needed |
+| `scripts/test-guardrail.mjs` | `npm run test-guardrail`: end-to-end tests of the scoring guardrail (real Gemini, fake Telegram) |
 | `vercel.json` | 60s timeout, and bundles `prompts/` with the function |
 | `.env.example` | The environment variables you need |
 
@@ -57,6 +58,9 @@ Now any text note Meera sends gets a draft back.
 
 - **Voice:** edit or replace `prompts/voice-skill.txt` and redeploy. Its full text is
   sent to Gemini as the instructions for every draft.
+- **Scoring guardrail:** every note is scored 0–10 by Gemini before drafting. Notes under 6
+  get a short reply explaining why, and no draft. The rubric is `SCORING_PROMPT` and the
+  threshold is `MIN_DRAFT_SCORE` in `lib/gemini.js`.
 - **Model:** set `GEMINI_MODEL` in Vercel (default `gemini-3.6-flash`).
 - **Output format:** `lib/gemini.js` adds fixed rules after the voice file —
   use only facts from the note, write [add figure] instead of inventing numbers,

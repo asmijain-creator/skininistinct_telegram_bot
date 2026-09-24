@@ -1,4 +1,4 @@
-import { draftPost } from "../lib/gemini.js";
+import { draftPost, scoreNote, MIN_DRAFT_SCORE } from "../lib/gemini.js";
 import { sendMessage, sendTyping } from "../lib/telegram.js";
 
 function allowedChatIds() {
@@ -44,8 +44,20 @@ export default async function handler(req, res) {
       await sendMessage(chatId, "I can only work with text notes for now — please type or paste your note.", message.message_id);
     } else {
       await sendTyping(chatId).catch(() => {});
-      const draft = await draftPost(text);
-      await sendMessage(chatId, draft, message.message_id);
+      // Guardrail: only notes that already have substance reach drafting.
+      // If scoring fails or is malformed, scoreNote throws and nothing is drafted.
+      const { score, reason } = await scoreNote(text);
+      console.log(`Note scored ${score}/10: ${reason}`);
+      if (score < MIN_DRAFT_SCORE) {
+        await sendMessage(
+          chatId,
+          `I didn't create a draft because this note isn't substantive enough yet: ${reason}`,
+          message.message_id
+        );
+      } else {
+        const draft = await draftPost(text);
+        await sendMessage(chatId, draft, message.message_id);
+      }
     }
   } catch (err) {
     console.error(err);

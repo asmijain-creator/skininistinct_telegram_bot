@@ -14,7 +14,7 @@ export default async function handler(req, res) {
   }
 
   // Telegram echoes the secret we registered with setWebhook in this header.
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
   if (!secret || req.headers["x-telegram-bot-api-secret-token"] !== secret) {
     return res.status(401).send("Unauthorized");
   }
@@ -37,8 +37,9 @@ export default async function handler(req, res) {
           (allowed.includes(String(chatId)) ? "" : " — add it to ALLOWED_CHAT_IDS in Vercel to enable drafting.")
       );
     } else if (!allowed.includes(String(chatId))) {
-      // Ignore strangers so nobody else can spend the Gemini quota.
+      // Don't draft for strangers so nobody else can spend the Gemini quota.
       console.warn(`Ignored message from unauthorised chat ${chatId}`);
+      await sendMessage(chatId, `This chat (ID ${chatId}) isn't allowed to use this bot yet. Add the ID to ALLOWED_CHAT_IDS in Vercel.`);
     } else if (!text) {
       await sendMessage(chatId, "I can only work with text notes for now — please type or paste your note.", message.message_id);
     } else {

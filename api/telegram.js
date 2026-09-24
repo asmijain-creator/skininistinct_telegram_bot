@@ -49,10 +49,12 @@ export default async function handler(req, res) {
       // If scoring fails or is malformed, scoreNote throws and nothing is drafted.
       const { score, reason } = await scoreNote(text);
       console.log(`Note scored ${score}/10: ${reason}`);
+      // The grade leads every reply; the draft (and any verify flag) follows it.
+      const grade = `Score: ${score}/10`;
       if (score < MIN_DRAFT_SCORE) {
         await sendMessage(
           chatId,
-          `I didn't create a draft because this note isn't substantive enough yet: ${reason}`,
+          `${grade}\n\nI didn't create a draft because this note isn't substantive enough yet: ${reason}`,
           message.message_id
         );
       } else {
@@ -60,7 +62,8 @@ export default async function handler(req, res) {
         const news = await findNews(text);
         await sendTyping(chatId).catch(() => {});
         const { draft, newsUsed } = await draftPost(text, news);
-        await sendMessage(chatId, newsUsed ? `${draft}\n\n${VERIFY_FLAG}` : draft, message.message_id);
+        const body = newsUsed ? `${draft}\n\n${VERIFY_FLAG}` : draft;
+        await sendMessage(chatId, `${grade} — ${reason}\n\n${body}`, message.message_id);
         if (newsUsed) {
           await sendMessage(
             chatId,

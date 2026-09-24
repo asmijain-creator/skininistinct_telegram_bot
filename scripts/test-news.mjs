@@ -115,7 +115,8 @@ const PERSONAL = "Last month I sat in on our customer-service calls for a full w
   check("results retrieved with headline/source/date/url", r.rssItems?.length > 0 && r.rssItems.every((a) => a.headline && a.source && a.date && a.url.startsWith("https://")));
   check("relevance was evaluated", r.relevance !== null);
   check("news only passed to drafting if judged relevant", r.newsInDraftPrompt === (r.relevance?.index > 0));
-  check("draft generated", r.draftCalls >= 1 && r.replies[0]?.length > 100 && !r.replies[0].startsWith(REJECT_PREFIX));
+  check("draft generated", r.draftCalls >= 1 && r.replies[0]?.length > 100 && !r.replies[0].includes(REJECT_PREFIX));
+  check("reply leads with the grade", r.replies[0]?.startsWith(`Score: ${r.score?.score}/10 — ${r.score?.reason}\n\n`));
   check("draft keeps paragraph breaks", r.replies[0]?.includes("\n\n"));
   const used = r.newsInDraftPrompt && r.replies.length === 2;
   check(`flag ${used ? "present at the very end (news used)" : "absent (news not used)"}`, flagOk(r.replies[0], used));
@@ -144,7 +145,7 @@ const PERSONAL = "Last month I sat in on our customer-service calls for a full w
   check("NO keyword extraction", r.keywordCalls === 0);
   check("NO Google News search", r.newsSearches.length === 0);
   check("NO drafting", r.draftCalls === 0);
-  check("rejection message sent, workflow stops", r.replies.length === 1 && r.replies[0] === REJECT_PREFIX + r.score?.reason);
+  check("rejection message sent, workflow stops", r.replies.length === 1 && r.replies[0] === `Score: ${r.score?.score}/10\n\n` + REJECT_PREFIX + r.score?.reason);
 }
 
 // ---- Failure handling: news layer never blocks drafting --------------------------

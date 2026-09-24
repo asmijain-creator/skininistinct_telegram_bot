@@ -81,7 +81,8 @@ const REJECT_PREFIX = "I didn't create a draft because this note isn't substanti
   check("score >= 6", r.score >= 6);
   check("scoring ran before drafting", r.scoringCalls === 1);
   check("drafting step called", r.draftCalled);
-  check("draft sent to Telegram (not a rejection)", r.replies.length >= 1 && !r.replies[0].startsWith(REJECT_PREFIX) && r.replies[0].length > 100);
+  check("draft sent to Telegram (not a rejection)", r.replies.length >= 1 && !r.replies[0].includes(REJECT_PREFIX) && r.replies[0].length > 100);
+  check("reply leads with the grade", r.replies[0]?.startsWith(`Score: ${r.score}/10 — ${r.reason}\n\n`));
   const sys = r.draftRequest?.system_instruction?.parts?.[0]?.text || "";
   check("draft request uses the voice skill, output rules and the note",
     sys.startsWith("Meera Pillai / Skinstinct") && sys.includes("Output rules:") &&
@@ -96,7 +97,7 @@ const REJECT_PREFIX = "I didn't create a draft because this note isn't substanti
   console.log(`  score=${r.score}  reason="${r.reason}"`);
   check("score <= 3", r.score <= 3);
   check("drafting step NOT called", !r.draftCalled);
-  check("rejection message sent in required format", r.replies.length === 1 && r.replies[0] === REJECT_PREFIX + r.reason);
+  check("rejection message sent in required format", r.replies.length === 1 && r.replies[0] === `Score: ${r.score}/10\n\n` + REJECT_PREFIX + r.reason);
   console.log(`  telegram: "${r.replies[0]}"`);
 }
 
@@ -107,7 +108,7 @@ const REJECT_PREFIX = "I didn't create a draft because this note isn't substanti
   console.log(`  score=${r.score}  reason="${r.reason}"`);
   check("score < 6", r.score < 6);
   check("drafting step NOT called", !r.draftCalled);
-  check("rejection message sent in required format", r.replies.length === 1 && r.replies[0] === REJECT_PREFIX + r.reason);
+  check("rejection message sent in required format", r.replies.length === 1 && r.replies[0] === `Score: ${r.score}/10\n\n` + REJECT_PREFIX + r.reason);
   console.log(`  telegram: "${r.replies[0]}"`);
 }
 
@@ -139,7 +140,7 @@ const REJECT_PREFIX = "I didn't create a draft because this note isn't substanti
   // Garbage once, then valid: recovers via the retry.
   fakeScoringReplies = ["oops", '{"score": 3, "reason": "It is only a reminder."}'];
   const r2 = await runNote("Write something about niacinamide tomorrow.");
-  check("recovers on retry and routes by the valid score", r2.scoringCalls === 2 && !r2.draftCalled && r2.replies[0] === REJECT_PREFIX + "It is only a reminder.");
+  check("recovers on retry and routes by the valid score", r2.scoringCalls === 2 && !r2.draftCalled && r2.replies[0] === "Score: 3/10\n\n" + REJECT_PREFIX + "It is only a reminder.");
   fakeScoringReplies = null;
 }
 

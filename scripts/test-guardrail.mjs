@@ -23,7 +23,8 @@ globalThis.fetch = async (url, init = {}) => {
   }
   if (url.includes("generativelanguage.googleapis.com")) {
     const body = JSON.parse(init.body);
-    const kind = body.generationConfig?.responseSchema ? "score" : "draft";
+    const sys = body.system_instruction?.parts?.[0]?.text || "";
+    const kind = sys.includes("strict editorial gatekeeper") ? "score" : sys.startsWith("Meera Pillai / Skinstinct") ? "draft" : "news";
     log.gemini.push({ kind, body });
     if (kind === "score" && fakeScoringReplies) {
       const text = fakeScoringReplies.shift();
@@ -80,12 +81,11 @@ const REJECT_PREFIX = "I didn't create a draft because this note isn't substanti
   check("score >= 6", r.score >= 6);
   check("scoring ran before drafting", r.scoringCalls === 1);
   check("drafting step called", r.draftCalled);
-  check("draft sent to Telegram (not a rejection)", r.replies.length === 1 && !r.replies[0].startsWith(REJECT_PREFIX) && r.replies[0].length > 100);
+  check("draft sent to Telegram (not a rejection)", r.replies.length >= 1 && !r.replies[0].startsWith(REJECT_PREFIX) && r.replies[0].length > 100);
   const sys = r.draftRequest?.system_instruction?.parts?.[0]?.text || "";
-  check("draft request unchanged (voice + output rules, same user prompt, no extra config)",
+  check("draft request uses the voice skill, output rules and the note",
     sys.startsWith("Meera Pillai / Skinstinct") && sys.includes("Output rules:") &&
-    r.draftRequest.contents[0].parts[0].text.startsWith("Here is my note. Turn it into a post:\n\n") &&
-    !("generationConfig" in r.draftRequest));
+    r.draftRequest.contents[0].parts[0].text.startsWith("Here is my note. Turn it into a post:\n\n"));
   console.log("  --- draft ---\n" + (r.replies[0] || "").split("\n").map((l) => "  | " + l).join("\n"));
 }
 

@@ -16,12 +16,14 @@ No npm dependencies — it uses Node's built-in `fetch`.
 | File | What it does |
 | --- | --- |
 | `api/telegram.js` | The webhook Vercel runs for each Telegram message |
-| `lib/gemini.js` | Scores each note (guardrail), then builds the draft prompt and calls Gemini |
+| `lib/gemini.js` | Shared Gemini client; scores each note (guardrail), then drafts with optional news context |
+| `lib/news.js` | For notes that pass: search terms → Google News RSS → relevance check → one article (or none) |
 | `lib/telegram.js` | Sends replies (splits anything over Telegram's 4096-char limit) |
 | `prompts/voice-skill.txt` | Meera's voice description, sent to Gemini word for word on every draft |
 | `scripts/set-webhook.mjs` | One-time: tells Telegram where your Vercel app is |
 | `scripts/try-draft.mjs` | Test the voice prompt from your terminal, no Telegram needed |
 | `scripts/test-guardrail.mjs` | `npm run test-guardrail`: end-to-end tests of the scoring guardrail (real Gemini, fake Telegram) |
+| `scripts/test-news.mjs` | `npm run test-news`: end-to-end tests of the news layer and `[VERIFY NEWS]` flag, with fault injection |
 | `vercel.json` | 60s timeout, and bundles `prompts/` with the function |
 | `.env.example` | The environment variables you need |
 
@@ -61,6 +63,10 @@ Now any text note Meera sends gets a draft back.
 - **Scoring guardrail:** every note is scored 0–10 by Gemini before drafting. Notes under 6
   get a short reply explaining why, and no draft. The rubric is `SCORING_PROMPT` and the
   threshold is `MIN_DRAFT_SCORE` in `lib/gemini.js`.
+- **News context:** notes that pass get one Google News search (no key needed, last 30 days).
+  An article is used only if Gemini judges it genuinely relevant and actually works it into the
+  draft; then the draft ends with `[VERIFY NEWS]` and a second message gives the article link.
+  Any news failure just means a draft without news.
 - **Model:** set `GEMINI_MODEL` in Vercel (default `gemini-3.6-flash`).
 - **Output format:** `lib/gemini.js` adds fixed rules after the voice file —
   use only facts from the note, write [add figure] instead of inventing numbers,

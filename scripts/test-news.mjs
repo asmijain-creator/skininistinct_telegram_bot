@@ -4,7 +4,7 @@
 // Usage: npm run test-news
 import handler from "../api/telegram.js";
 import { parseScore } from "../lib/gemini.js";
-import { parseSearchTerms, parseRelevance, parseGoogleNewsRss } from "../lib/news.js";
+import { parseSearchTerms, parseRelevance, parseGoogleNewsRss, formatRelatedNews } from "../lib/news.js";
 
 const CHAT_ID = 111;
 process.env.ALLOWED_CHAT_IDS = String(CHAT_ID);
@@ -90,6 +90,15 @@ const flagCount = (s) => (s || "").split(FLAG).length - 1;
 const flagOk = (draft, expected) => expected
   ? flagCount(draft) === 1 && draft.endsWith(`\n\n${FLAG}`)
   : flagCount(draft) === 0;
+// A draft reply is: grade + draft (+ flag), then SEP, then the Related news section.
+const SEP = "\n\n———\n";
+const draftOf = (reply) => (reply || "").split(SEP)[0];
+const relatedOf = (reply) => (reply || "").split(SEP)[1] || "";
+const usedInReply = (reply) => relatedOf(reply).includes("Used in this draft");
+const endsWithQuestion = (reply) => {
+  const lines = draftOf(reply).split("\n").map((l) => l.trim()).filter((l) => l && l !== FLAG);
+  return lines.at(-1)?.endsWith("?");
+};
 function show(r) {
   if (r.score) console.log(`  score=${r.score.score}  "${r.score.reason}"`);
   if (r.terms) console.log(`  keywords=${JSON.stringify(r.terms.keywords)}  phrase="${r.terms.search_phrase}"`);
@@ -118,9 +127,11 @@ const PERSONAL = "Last month I sat in on our customer-service calls for a full w
   check("draft generated", r.draftCalls >= 1 && r.replies[0]?.length > 100 && !r.replies[0].includes(REJECT_PREFIX));
   check("reply leads with the grade", r.replies[0]?.startsWith(`Score: ${r.score?.score}/10 — ${r.score?.reason}\n\n`));
   check("draft keeps paragraph breaks", r.replies[0]?.includes("\n\n"));
-  const used = r.newsInDraftPrompt && r.replies.length === 2;
-  check(`flag ${used ? "present at the very end (news used)" : "absent (news not used)"}`, flagOk(r.replies[0], used));
-  if (used) check("follow-up message preserves the article URL", r.replies[1].includes("https://news.google.com/"));
+  check("draft ends with an opening question to her network", endsWithQuestion(r.replies[0]));
+  const used = r.newsInDraftPrompt && usedInReply(r.replies[0]);
+  check(`flag ${used ? "present at the very end of the draft (news used)" : "absent (news not used)"}`, flagOk(draftOf(r.replies[0]), used));
+  check("reply ends with a Related news section with Google News links",
+    r.replies.length === 1 && relatedOf(r.replies[0]).startsWith("Related news") && relatedOf(r.replies[0]).includes("https://news.google.com/"));
 }
 
 // ---- TEST 2 -------------------------------------------------------------------
@@ -131,9 +142,11 @@ const PERSONAL = "Last month I sat in on our customer-service calls for a full w
   check("passes B1.1", r.score?.score >= 6);
   check("draft generated and based on the note", r.replies[0]?.includes("31") && r.replies[0]?.includes("118"));
   check("draft keeps paragraph breaks", r.replies[0]?.includes("\n\n"));
-  const used = r.replies.length === 2; // the app sends the source follow-up only when news was used
+  check("draft ends with an opening question to her network", endsWithQuestion(r.replies[0]));
+  const used = usedInReply(r.replies[0]);
   check(`no flag unless news actually used (news in prompt=${r.newsInDraftPrompt}, news_used=${r.modelNewsUsed ?? "n/a"})`,
-    flagOk(r.replies[0], used) && (r.newsInDraftPrompt || !used));
+    flagOk(draftOf(r.replies[0]), used) && (r.newsInDraftPrompt || !used));
+  check("reply ends with a Related news section", relatedOf(r.replies[0]).startsWith("Related news"));
 }
 
 // ---- TEST 3 -------------------------------------------------------------------
@@ -160,8 +173,9 @@ const PERSONAL = "Last month I sat in on our customer-service calls for a full w
   ];
   for (const [label, injected] of cases) {
     const r = await runNote(NIACINAMIDE, injected);
-    check(`${label}: draft still sent, no news, no flag`,
-      r.draftCalls >= 1 && !r.newsInDraftPrompt && r.replies.length === 1 && r.replies[0].length > 100 && flagOk(r.replies[0], false));
+    check(`${label}: draft still sent, no news, no flag, Related news explains why`,
+      r.draftCalls >= 1 && !r.newsInDraftPrompt && r.replies.length === 1 && draftOf(r.replies[0]).length > 100 &&
+      flagOk(draftOf(r.replies[0]), false) && relatedOf(r.replies[0]).startsWith("Related news:"));
   }
 }
 
@@ -172,22 +186,25 @@ const PERSONAL = "Last month I sat in on our customer-service calls for a full w
   const fixture = `<rss><channel><item><title>Regulator asks cosmetic brands to back up ingredient-percentage claims - Test Wire</title><link>https://news.google.com/rss/articles/TEST</link><pubDate>${new Date().toUTCString()}</pubDate><source url="https://example.com">Test Wire</source></item></channel></rss>`;
 
   const found = await runNote(NIACINAMIDE, { news: fixture, draft: ['{"draft":"A post that ignores the article entirely and talks only about pH and delivery base in niacinamide serums, at some length so it looks real.","news_used":false}'] });
-  check("news found but draft says news_used=false → no flag", found.newsInDraftPrompt && flagOk(found.replies[0], false) && found.replies.length === 1);
+  check("news found but draft says news_used=false → no flag; article listed as most relevant (not used)",
+    found.newsInDraftPrompt && flagOk(draftOf(found.replies[0]), false) && relatedOf(found.replies[0]).includes("Most relevant (not used in the draft)"));
 
   const used = await runNote(NIACINAMIDE, { news: fixture, draft: ['{"draft":"Regulators are now asking brands to back up percentage claims. That is a start. The pH and delivery base matter just as much.","news_used":true}'] });
-  check("news_used=true → flag once, at the very end, plus source message", flagOk(used.replies[0], true) && used.replies[1]?.includes("https://news.google.com/rss/articles/TEST"));
+  check("news_used=true → flag once at the very end of the draft; article listed as used, with URL",
+    flagOk(draftOf(used.replies[0]), true) && usedInReply(used.replies[0]) && relatedOf(used.replies[0]).includes("https://news.google.com/rss/articles/TEST"));
 
   const misplaced = await runNote(NIACINAMIDE, { news: fixture, draft: ['{"draft":"[VERIFY NEWS] Opening line about pH.\\n\\nMore about delivery base and batch consistency here. [VERIFY NEWS]","news_used":false}'] });
-  check("model-written flags are stripped when news_used=false", flagOk(misplaced.replies[0], false));
+  check("model-written flags are stripped when news_used=false", flagOk(draftOf(misplaced.replies[0]), false));
 
   const understated = await runNote(NIACINAMIDE, { news: fixture, draft: ['{"draft":"As Test Wire reported this week, regulators want proof behind percentages. The pH matters too.","news_used":false}'] });
-  check("draft cites the source but claims news_used=false → flag added anyway", flagOk(understated.replies[0], true));
+  check("draft cites the source but claims news_used=false → flag added anyway", flagOk(draftOf(understated.replies[0]), true));
 
   const none = await runNote(NIACINAMIDE, { news: "<rss><channel></channel></rss>", draft: ['{"draft":"A post about pH and delivery base in niacinamide serums, long enough to be a real draft for this test.","news_used":true}'] });
-  check("no article found but model claims news_used=true → no flag", flagOk(none.replies[0], false));
+  check("no article found but model claims news_used=true → no flag", flagOk(draftOf(none.replies[0]), false));
 
   const broken = await runNote(NIACINAMIDE, { news: fixture, draft: ["not json", "still not json"] });
-  check("malformed draft JSON twice → plain-text fallback draft, no flag", broken.replies.length === 1 && broken.replies[0].length > 100 && flagOk(broken.replies[0], false));
+  check("malformed draft JSON twice → plain-text fallback draft, no flag",
+    broken.replies.length === 1 && draftOf(broken.replies[0]).length > 100 && flagOk(draftOf(broken.replies[0]), false));
 }
 
 // ---- Parsers ------------------------------------------------------------------
@@ -202,6 +219,19 @@ const PERSONAL = "Last month I sat in on our customer-service calls for a full w
   check("relevance: accepts none", parseRelevance('{"index":0,"summary":""}', 5)?.index === 0);
   const rss = parseGoogleNewsRss(`<rss><item><title>Brands &amp; labels: what&#39;s next - The Hindu</title><link>https://news.google.com/a</link><pubDate>Mon, 21 Sep 2026 07:00:00 GMT</pubDate><source url="https://thehindu.com">The Hindu</source></item></rss>`);
   check("rss: decodes entities, strips ' - Source', formats date", rss[0]?.headline === "Brands & labels: what's next" && rss[0].source === "The Hindu" && rss[0].date === "2026-09-21");
+
+  const a = (n) => ({ headline: `H${n}`, source: `S${n}`, date: "2026-09-20", url: `https://news.google.com/${n}` });
+  const results = [a(1), a(2), a(3), a(4)];
+  const usedTxt = formatRelatedNews({ status: "found", results, article: { ...a(2), summary: "x" } }, { used: true });
+  check("related news: used article first and labelled, 3 items max",
+    usedTxt.includes("1. Used in this draft") && usedTxt.indexOf("H2") < usedTxt.indexOf("H1") && !usedTxt.includes("H4") && (usedTxt.match(/https:/g) || []).length === 3);
+  check("related news: relevant but unused is labelled as not used",
+    formatRelatedNews({ status: "found", results, article: { ...a(1), summary: "x" } }, { used: false }).includes("Most relevant (not used in the draft)"));
+  const nearest = formatRelatedNews({ status: "none_relevant", results, article: null });
+  check("related news: none relevant → says so, lists nearest 3", nearest.includes("None closely matched") && (nearest.match(/https:/g) || []).length === 3);
+  check("related news: no results / failed → one honest line",
+    formatRelatedNews({ status: "no_results", search_phrase: "q", results: [] }).includes('nothing on Google News in the last 30 days for "q"') &&
+    formatRelatedNews({ status: "failed", results: [] }).includes("couldn't be searched"));
 }
 
 console.log(`\n${failures === 0 ? "ALL TESTS PASSED" : `${failures} CHECK(S) FAILED`}`);

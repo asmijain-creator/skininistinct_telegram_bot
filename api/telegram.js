@@ -1,5 +1,5 @@
 import { draftPost, scoreNote, MIN_DRAFT_SCORE, VERIFY_FLAG } from "../lib/gemini.js";
-import { findNews } from "../lib/news.js";
+import { findNews, formatRelatedNews } from "../lib/news.js";
 import { sendMessage, sendTyping } from "../lib/telegram.js";
 
 function allowedChatIds() {
@@ -58,18 +58,13 @@ export default async function handler(req, res) {
           message.message_id
         );
       } else {
-        // News context (B1.2): optional and non-blocking; null means draft without it.
+        // News context (B1.2): never blocks; only a relevant article reaches drafting.
         const news = await findNews(text);
         await sendTyping(chatId).catch(() => {});
-        const { draft, newsUsed } = await draftPost(text, news);
+        const { draft, newsUsed } = await draftPost(text, news.article);
         const body = newsUsed ? `${draft}\n\n${VERIFY_FLAG}` : draft;
-        await sendMessage(chatId, `${grade} — ${reason}\n\n${body}`, message.message_id);
-        if (newsUsed) {
-          await sendMessage(
-            chatId,
-            `News used in this draft (please check it before posting):\n${news.headline}\n${news.source}, ${news.date}\n${news.url}`
-          );
-        }
+        const related = formatRelatedNews(news, { used: newsUsed });
+        await sendMessage(chatId, `${grade} — ${reason}\n\n${body}\n\n———\n${related}`, message.message_id);
       }
     }
   } catch (err) {
